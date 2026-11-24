@@ -18,14 +18,18 @@ from gdbrpc.plugin import Plugin, View
 HEAP_DEEP_PATH_DEFAULT = os.path.expanduser(
     "~/scratch/heap-plugin/src/server/heap-deep.py"
 )
+_VENDORED_HEAP_DEEP = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "_heap_deep.py"
+)
 _HEAP_MODULE = "gdbrpc_heap_deep"
 
 
 def _heap_deep_path():
     """Resolve heap-deep.py: GDBRPC_HEAP_DEEP_PATH env var, then the
     .env file, then the default location. (The heap-plugin repo is NOT
-    part of the gdbrpc repo — containers/other machines need to point
-    at a copy.)"""
+    part of the gdbrpc repo — containers/other machines can point at a
+    checkout; the vendored _heap_deep.py next to this plugin usually
+    makes that unnecessary.)"""
     for source in (
         os.environ.get("GDBRPC_HEAP_DEEP_PATH"),
         _env_value("GDBRPC_HEAP_DEEP_PATH"),
@@ -50,18 +54,20 @@ def _env_value(key):
 
 
 def _parser():
-    """Lazily import heap-deep.py and return a fresh HeapParser."""
-    path = _heap_deep_path()
+    """Lazily load a HeapParser: the vendored parser (plugins/_heap_deep.py,
+    shipped with the repo — works everywhere) or, when overridden via
+    GDBRPC_HEAP_DEEP_PATH / .env, the external heap-plugin checkout."""
+    path = _heap_deep_path() if not os.path.isfile(_VENDORED_HEAP_DEEP) \
+        else _VENDORED_HEAP_DEEP
+    if path != _VENDORED_HEAP_DEEP and not os.path.isfile(path):
+        raise FileNotFoundError(
+            f"heap-deep.py not found at {path} — set GDBRPC_HEAP_DEEP_PATH "
+            "in the environment or ~/.config/gdbrpc/.env"
+        )
     mod = sys.modules.get(_HEAP_MODULE)
     if mod is None or not hasattr(mod, "HeapParser"):
         # (a cached module WITHOUT HeapParser is a poisoned leftover
         # from a failed exec — re-import instead of trusting it)
-        if not os.path.isfile(path):
-            raise FileNotFoundError(
-                f"heap-deep.py not found at {path} — the heap plugin "
-                "needs the heap-plugin repo; set GDBRPC_HEAP_DEEP_PATH "
-                "in the environment or ~/.config/gdbrpc/.env"
-            )
         spec = importlib.util.spec_from_file_location(_HEAP_MODULE, path)
         if spec is None or spec.loader is None:
             raise ImportError(f"cannot create import spec for {path}")

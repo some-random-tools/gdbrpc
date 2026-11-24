@@ -113,12 +113,18 @@ ResumeCommand → non-blocking `{"resumed": ...}`), eval(expression),
 memory(address,count,fmt), break(location), delete-breakpoint(number).
 
 **heap** — `heap-tcache/heap-fastbins/heap-bins/heap-arena` views, rendered
-as plain text from the **HeapParser imported from
-`~/scratch/heap-plugin/src/server/heap-deep.py`** (lazy import on first
-snapshot — it registers its own gdb commands and needs libc symbols).
-Safe-linking deobfuscation comes from that parser.
-NOTE: `HEAP_DEEP_PATH` constant in heap_plugin.py → update if repo moves.
+as plain text from a **vendored copy of the heap-plugin HeapParser**
+(`plugins/_heap_deep.py`, underscore = not scanned as a plugin; parser part
+only — no command registration). Import order: vendored copy →
+`GDBRPC_HEAP_DEEP_PATH` (env var or `.env`) → default external checkout
+(`~/scratch/heap-plugin/src/server/heap-deep.py`). Lazy import on first
+snapshot. Safe-linking deobfuscation comes from that parser.
 If no heap yet: views degrade to "(tcache unavailable: …)" text.
+**Never cache a half-executed module in sys.modules** — a poisoned entry
+surfaces as the confusing "module 'gdbrpc_heap_deep' has no attribute
+'HeapParser'" (that was a real container bug: missing heap-deep.py).
+Update the vendored parser by re-extracting from the heap-plugin repo up to
+`class HeapDisplay`.
 
 ## Console client (`venv` side, stdlib only)
 
@@ -283,3 +289,7 @@ make test          # same, plain
   watch view are ideas in README.
 - The `.env` diff/line colors are read at plugin **import** time (restart
   mps-tray after editing).
+- Deployment: `git pull` in a checkout + re-copy `plugins/*.py` to
+  `~/.config/gdbrpc/plugins/` + restart gdb. (The vendored `_heap_deep.py`
+  makes external checkouts unnecessary — users without the heap-plugin repo
+  get the parser with the gdbrpc repo.)
