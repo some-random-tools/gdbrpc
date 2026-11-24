@@ -39,6 +39,17 @@ class Colorizer:
 # ---------------------------------------------------------------------------
 # Low-level heap parser (works when glibc debug symbols are present)
 # ---------------------------------------------------------------------------
+class TcacheUnavailable(Exception):
+    """Raised by HeapParser.get_tcache when reading 'tcache' (a __thread /
+    TLS variable) is unsafe: evaluating TLS can run an inferior call
+    (__tls_get_addr), which resumes the inferior. If the stop sits inside
+    the allocator's lazy per-thread init, that resume re-hits the very
+    breakpoint we are stopped on -> nested stop -> view refresh -> TLS eval
+    -> recursion storm (empirically: RecursionError, then GDB's own
+    infcall.c assertion). Callers render this as a plain '(unavailable)'
+    note -- nothing here resumes the inferior."""
+
+
 class HeapParser:
     def __init__(self):
         self.ptr_size = gdb.lookup_type('void').pointer().sizeof
@@ -270,7 +281,46 @@ class HeapParser:
     def get_unsorted(self, arena_addr, arena):
         return self._walk_bin(arena_addr, arena, 1)
 
+    # tcache is __thread (TLS). Evaluating a TLS variable can make GDB run
+    # an inferior call (__tls_get_addr) -> it RESUMES the inferior. If the
+    # stop sits inside the allocator's lazy per-thread init (tcache_init /
+    # arena_get2 / get_free_list), that resume re-hits the breakpoint we are
+    # stopped on -> nested stop event -> view refresh -> TLS eval -> ... a
+    # RecursionError storm (and eventually a GDB infcall internal error).
+    # Only other places in this parser read globals (main_arena etc.), never
+    # TLS, so this guard is tcache-only.
+    LAZY_INIT_FRAMES = frozenset({
+        'tcache_init', 'arena_get2', 'get_free_list',
+        'arena_get', 'arena_lock', 'arena_get_retry',
+    })
+
+    def stopped_in_lazy_init(self):
+        """Name of the allocator lazy-init frame the selected thread is in,
+        or None. Called from a stop-triggered view render: frame walking
+        only, no memory reads, no TLS evals -> never resumes the inferior."""
+        try:
+            frame = gdb.selected_frame()
+        except Exception:
+            return None
+        for _ in range(30):
+            name = frame.name()          # None for stripped frames: fine
+            if name in self.LAZY_INIT_FRAMES:
+                return name
+            try:
+                frame = frame.older()
+            except Exception:
+                return None
+            if frame is None:
+                return None
+        return None
+
     def get_tcache(self):
+        lazy = self.stopped_in_lazy_init()
+        if lazy is not None:
+            # Refuse instead of storming. The caller renders this note.
+            raise TcacheUnavailable(
+                f"thread stopped inside {lazy} (allocator lazy init): "
+                f"reading 'tcache' (TLS) here would resume the inferior")
         try:
             tcache_ptr = gdb.parse_and_eval('tcache')
         except Exception:

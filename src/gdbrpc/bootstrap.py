@@ -62,8 +62,30 @@ class App:
             )
 
     def _on_stop(self, event):
-        # best-effort; refresh() isolates per-view failures (decision #20)
-        self.viewhub.refresh("stop")
+        # Refresh views OUTSIDE the stop-event dispatch: gdb.post_event
+        # queues the handler on the main event loop, so a view render can
+        # never run re-entrantly inside this hook. That matters because a
+        # misbehaving view (e.g. a TLS evaluation or a Value/str comparison
+        # that triggers an inferior call -> resume -> another synchronous
+        # stop) would otherwise recurse stop -> refresh -> stop -> ...
+        # (empirically: RecursionError and GDB infcall internal errors).
+        # Still best-effort; refresh() isolates per-view failures (decision #20).
+        def _refresh():
+            # A breakpoint `commands` list may have auto-continued the
+            # inferior between the stop and this handler running. Frame-
+            # oriented views (bt, registers, ...) need a STOPPED selected
+            # thread; "Selected thread is running" would spam view.error.
+            # If we were resumed, the stop's state is gone -- skip; the
+            # next presented stop refreshes again.
+            try:
+                threads = gdb.selected_inferior().threads()
+            except Exception:
+                threads = []
+            if any(t.is_running() for t in threads):
+                return
+            self.viewhub.refresh("stop")
+
+        gdb.post_event(_refresh)
 
     def on_connection_closed(self, conn):
         # called from reader/writer threads on socket death

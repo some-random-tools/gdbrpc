@@ -92,11 +92,22 @@ def _hex(v):
 
 
 def _chain(ch):
-    """Render a chain: ints, (ptr, reason) tuples and '...' markers."""
+    """Render a chain: ints, (ptr, reason) tuples and '...' markers.
+
+    Type-driven on purpose: NEVER compare a gdb.Value against a string
+    (the old `c == "..."` did). Value.__eq__ with a str operand makes GDB
+    parse_and_eval the string AS AN INFERIOR EXPRESSION -- which can run
+    an INFERIOR CALL (__libc_malloc & co), i.e. RESUME the program in the
+    middle of a view render. With a breakpoint inside the allocator
+    (tcache_init / get_free_list), that resume re-hits it -> stop event ->
+    refresh -> render -> same comparison -> ... a stop-event storm
+    (hundreds of hits per knock, view.error spam, GDB infcall internal
+    errors). isinstance() checks don't evaluate anything; only _hex's
+    int() touches the value, which is a plain memory read."""
     out = []
     for c in ch:
-        if c == "...":
-            out.append("...")
+        if isinstance(c, str):
+            out.append(c)
         elif isinstance(c, tuple):
             out.append(f"{_hex(c[0])} ({c[1]})")
         else:
