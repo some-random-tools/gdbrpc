@@ -175,6 +175,7 @@ def _server_info(app, conn, params):
         "triggers": ["stop"],
         "config": {
             "port": app.config.port,
+            "bind": getattr(app.config, "bind", "127.0.0.1"),
             "plugin_dir": app.config.plugin_dir,
         },
     }

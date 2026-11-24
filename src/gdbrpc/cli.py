@@ -88,6 +88,10 @@ GDBRPC_PLUGIN_DIR={plugin_dir}
 # or keep them lazy until loaded via RPC (0/false)
 GDBRPC_AUTOLOAD={autoload}
 
+# Bind address of the RPC server (127.0.0.1 = local only, 0.0.0.0 = all
+# interfaces, e.g. for docker port publishing — NO AUTH, be careful)
+GDBRPC_BIND={bind}
+
 # Line marker color of the dashboard's code view (hex, e.g. #e8c262)
 GDBRPC_LINE_MARKER_COLOR={line_marker_color}
 
@@ -163,6 +167,7 @@ def cmd_install(args):
                 port=DEFAULT_PORT,
                 plugin_dir=DEFAULT_PLUGIN_DIR,
                 autoload=1,
+                bind="127.0.0.1",
                 line_marker_color="#e8c262",
                 diff_color="#e67e22",
                 site_packages=site_packages,
@@ -179,6 +184,13 @@ def cmd_install(args):
                 f.write(
                     "\n# load all discovered plugins at gdb startup "
                     "(0/false disables)\nGDBRPC_AUTOLOAD=1\n"
+                )
+        if "GDBRPC_BIND=" not in existing:
+            with open(ENV_FILE, "a", encoding="utf-8") as f:
+                f.write(
+                    "\n# bind address of the RPC server (127.0.0.1 = local "
+                    "only; 0.0.0.0 = all interfaces — NO AUTH, be careful)\n"
+                    "GDBRPC_BIND=127.0.0.1\n"
                 )
         if "GDBRPC_LINE_MARKER_COLOR=" not in existing:
             with open(ENV_FILE, "a", encoding="utf-8") as f:
@@ -267,7 +279,7 @@ def cmd_status(args):
     s = socket.socket()
     s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     try:
-        s.bind(("127.0.0.1", cfg.port))
+        s.bind((cfg.bind, cfg.port))
         in_use = False
     except OSError:
         in_use = True
@@ -278,7 +290,10 @@ def cmd_status(args):
         # else squats the port" (problem)
         live = False
         try:
-            c = socket.create_connection(("127.0.0.1", cfg.port), timeout=3)
+            # probe via loopback (works for any bind incl. 0.0.0.0)
+            probe_host = "127.0.0.1" if cfg.bind in ("0.0.0.0", "::") \
+                else cfg.bind
+            c = socket.create_connection((probe_host, cfg.port), timeout=3)
             c.settimeout(3)
             c.sendall(b'{"jsonrpc":"2.0","id":1,"method":"server.info",'
                        b'"params":{}}\n')

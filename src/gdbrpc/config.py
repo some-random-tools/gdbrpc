@@ -32,8 +32,8 @@ class Config:
     port: int = DEFAULT_PORT
     plugin_dir: str = str(DEFAULT_PLUGIN_DIR)
     site_packages: str = ""
-    autoload: bool = True   # GDBRPC_AUTOLOAD: load all discovered
-                             # plugins immediately at gdb startup
+    autoload: bool = True   # GDBRPC_AUTOLOAD: load all discovered plugins at gdb startup
+    bind: str = "127.0.0.1"  # GDBRPC_BIND: server bind address
 
 
 def _env_flag(value, default=True):
@@ -45,7 +45,8 @@ def _env_flag(value, default=True):
 def load_config(env_file=ENV_FILE):
     values = parse_env_file(env_file)
     # environment variables override .env (dev/test convenience)
-    for key in ("GDBRPC_PORT", "GDBRPC_PLUGIN_DIR", "GDBRPC_AUTOLOAD"):
+    for key in ("GDBRPC_PORT", "GDBRPC_PLUGIN_DIR", "GDBRPC_AUTOLOAD",
+                "GDBRPC_BIND"):
         if os.environ.get(key):
             values[key] = os.environ[key]
     return Config(
@@ -53,4 +54,5 @@ def load_config(env_file=ENV_FILE):
         plugin_dir=values.get("GDBRPC_PLUGIN_DIR", str(DEFAULT_PLUGIN_DIR)),
         site_packages=values.get("GDBRPC_SITE_PACKAGES", ""),
         autoload=_env_flag(values.get("GDBRPC_AUTOLOAD")),
+        bind=values.get("GDBRPC_BIND", "127.0.0.1").strip() or "127.0.0.1",
     )

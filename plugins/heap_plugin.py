@@ -15,23 +15,67 @@ import gdb
 
 from gdbrpc.plugin import Plugin, View
 
-HEAP_DEEP_PATH = os.path.expanduser(
+HEAP_DEEP_PATH_DEFAULT = os.path.expanduser(
     "~/scratch/heap-plugin/src/server/heap-deep.py"
 )
 _HEAP_MODULE = "gdbrpc_heap_deep"
 
 
+def _heap_deep_path():
+    """Resolve heap-deep.py: GDBRPC_HEAP_DEEP_PATH env var, then the
+    .env file, then the default location. (The heap-plugin repo is NOT
+    part of the gdbrpc repo — containers/other machines need to point
+    at a copy.)"""
+    for source in (
+        os.environ.get("GDBRPC_HEAP_DEEP_PATH"),
+        _env_value("GDBRPC_HEAP_DEEP_PATH"),
+    ):
+        if source:
+            return os.path.expanduser(source.strip())
+    return HEAP_DEEP_PATH_DEFAULT
+
+
+def _env_value(key):
+    """Read one key from ~/.config/gdbrpc/.env (if present)."""
+    path = os.path.expanduser("~/.config/gdbrpc/.env")
+    try:
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith(key + "="):
+                    return line.partition("=")[2]
+    except OSError:
+        pass
+    return None
+
+
 def _parser():
     """Lazily import heap-deep.py and return a fresh HeapParser."""
-    if _HEAP_MODULE not in sys.modules:
-        spec = importlib.util.spec_from_file_location(
-            _HEAP_MODULE, HEAP_DEEP_PATH
-        )
+    path = _heap_deep_path()
+    mod = sys.modules.get(_HEAP_MODULE)
+    if mod is None or not hasattr(mod, "HeapParser"):
+        # (a cached module WITHOUT HeapParser is a poisoned leftover
+        # from a failed exec — re-import instead of trusting it)
+        if not os.path.isfile(path):
+            raise FileNotFoundError(
+                f"heap-deep.py not found at {path} — the heap plugin "
+                "needs the heap-plugin repo; set GDBRPC_HEAP_DEEP_PATH "
+                "in the environment or ~/.config/gdbrpc/.env"
+            )
+        spec = importlib.util.spec_from_file_location(_HEAP_MODULE, path)
+        if spec is None or spec.loader is None:
+            raise ImportError(f"cannot create import spec for {path}")
         module = importlib.util.module_from_spec(spec)
         sys.modules[_HEAP_MODULE] = module
-        spec.loader.exec_module(module)
-    parser = sys.modules[_HEAP_MODULE].HeapParser()
-    return parser
+        try:
+            spec.loader.exec_module(module)
+        except Exception:
+            # never leave a half-executed module in sys.modules —
+            # it would poison every later call with AttributeError
+            sys.modules.pop(_HEAP_MODULE, None)
+            raise
+        mod = module
+    return mod.HeapParser()
 
 
 def _hex(v):

@@ -21,7 +21,7 @@ class App:
         self.manager = PluginManager()
         self.viewhub = ViewHub(self.manager.commands)
         self.dispatcher = Dispatcher(lambda item: methods.handle(self, item))
-        self.server = RpcServer(self)
+        self.server = RpcServer(self, host=getattr(config, "bind", "127.0.0.1"))
         self.methods = methods
         self.start_error = None
 
@@ -55,8 +55,8 @@ class App:
         self._register_gdb_command()
         if self.start_error is None:
             gdb.write(
-                f"[gdbrpc] v{self.version} listening on 127.0.0.1:"
-                f"{self.server.port}, "
+                f"[gdbrpc] v{self.version} listening on "
+                f"{self.server.host}:{self.server.port}, "
                 f"{len(self.manager.plugins.all_records())} plugin(s) "
                 "discovered\n"
             )
@@ -84,14 +84,16 @@ class App:
         else:
             gdb.write(
                 f"[gdbrpc] restarted, listening on "
-                f"127.0.0.1:{self.server.port}\n"
+                f"{self.server.host}:{self.server.port}\n"
             )
 
     def status_text(self):
         records = sorted(self.manager.plugins.all_records(), key=lambda r: r.name)
         lines = [f"gdbrpc {self.version}"]
         if self.server.is_running():
-            lines.append(f"server: listening on 127.0.0.1:{self.server.port}")
+            lines.append(
+                f"server: listening on {self.server.host}:{self.server.port}"
+            )
         else:
             extra = f" ({self.start_error})" if self.start_error else ""
             lines.append(f"server: not running{extra}")
