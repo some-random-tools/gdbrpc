@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gdbrpc"
+version = "0.1.0"
+description = "Plugin framework and JSON-RPC server running inside GDB"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [{name = "jb"}]
+dependencies = []
+
+[project.scripts]
+gdbrpc = "gdbrpc.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

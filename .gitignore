@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+*.egg-info/
+build/
+dist/
+tests/target
+tests/*.log.gdb_history

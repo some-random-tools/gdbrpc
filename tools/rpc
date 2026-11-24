@@ -1,0 +1,38 @@
+#!/bin/bash
+# gdbrpc test client — paste-safe:
+#
+#   tools/rpc <method>                      # params = {} (or read from stdin)
+#   tools/rpc <method> 'json'               # inline params (single line)
+#   tools/rpc <method> <<EOF ... EOF        # params from stdin (multi-line ok)
+#
+#   tools/rpc views.register <<EOF
+#   {"name":"registers","params":{"filter":"rip,rsp"}}
+#   EOF
+#
+#   tools/rpc views.listen <view-name>      # register + stay open, print pushes
+#
+# Stdin params are newline-stripped, so multi-line JSON is fine.
+
+PORT="${GDBRPC_PORT:-8944}"
+method="${1:?usage: tools/rpc <method> [params-json | <<EOF]}"
+
+if [ "$method" = "views.listen" ]; then
+    view="${2:?usage: tools/rpc views.listen <view-name>}"
+    {
+        printf '{"jsonrpc":"2.0","id":1,"method":"views.register","params":{"name":"%s"}}\n' "$view"
+    } | nc 127.0.0.1 "$PORT"
+    exit $?
+fi
+
+if [ -n "$2" ]; then
+    params="$2"
+elif [ ! -t 0 ]; then
+    params=$(cat)
+else
+    params='{}'
+fi
+params=$(printf '%s' "$params" | tr -d '\n\r')
+
+printf '{"jsonrpc":"2.0","id":1,"method":"%s","params":%s}\n' "$method" "$params" \
+    | nc -q 1 127.0.0.1 "$PORT"
+echo
